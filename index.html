@@ -3,495 +3,293 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>Улица Мира, 13 — DOOM Style</title>
+  <title>Улица Мира, 13 – DOOM</title>
   <style>
-    body { margin: 0; overflow: hidden; background: #000; font-family: 'Courier New', monospace; }
-    #ui {
-      position: absolute; top: 20px; left: 20px;
-      color: #ddd; font-size: 20px; text-shadow: 2px 2px 0 #000;
-      pointer-events: none; z-index: 10;
-    }
-    #message {
-      position: absolute; bottom: 100px; left: 50%; transform: translateX(-50%);
-      background: rgba(0,0,0,0.8); color: #fff; padding: 8px 24px;
-      border-radius: 30px; font-size: 18px; opacity: 0; transition: 0.3s;
-      pointer-events: none; z-index: 10;
-    }
-    #mobile-controls {
-      position: absolute; bottom: 20px; left: 0; right: 0;
-      display: none; justify-content: center; gap: 15px; z-index: 10;
-      flex-wrap: wrap; padding: 0 10px;
-    }
-    .ctrl-btn {
-      width: 55px; height: 55px; border-radius: 28px;
-      background: rgba(255,255,255,0.15); backdrop-filter: blur(12px);
-      border: 1px solid rgba(255,255,255,0.3); color: white;
-      font-size: 26px; display: flex; align-items: center; justify-content: center;
-      user-select: none; -webkit-user-select: none; touch-action: none;
-    }
-    @media (pointer: coarse) {
-      #mobile-controls { display: flex; }
-    }
+    body { margin:0; overflow:hidden; background:#000; font-family:'Courier New',monospace; }
+    #ui { position:absolute; top:20px; left:20px; color:#ddd; font-size:20px; text-shadow:2px 2px 0 #000; pointer-events:none; z-index:10; }
+    #msg { position:absolute; bottom:80px; left:50%; transform:translateX(-50%); background:rgba(0,0,0,0.8); color:#fff; padding:8px 24px; border-radius:30px; font-size:18px; opacity:0; transition:0.3s; pointer-events:none; z-index:10; }
+    #mobile { position:absolute; bottom:20px; left:0; right:0; display:none; justify-content:center; gap:10px; z-index:10; flex-wrap:wrap; }
+    .btn { width:50px; height:50px; border-radius:25px; background:rgba(255,255,255,0.15); backdrop-filter:blur(10px); border:1px solid rgba(255,255,255,0.3); color:white; font-size:24px; display:flex; align-items:center; justify-content:center; user-select:none; touch-action:none; }
+    @media (pointer:coarse) { #mobile { display:flex; } }
   </style>
 </head>
 <body>
-  <div id="ui">Дневников: <span id="diary-count">0</span>/5</div>
-  <div id="message">Кликни для управления</div>
-  <div id="mobile-controls">
-    <button class="ctrl-btn" id="btn-left">←</button>
-    <button class="ctrl-btn" id="btn-forward">↑</button>
-    <button class="ctrl-btn" id="btn-right">→</button>
-    <button class="ctrl-btn" id="btn-back">↓</button>
-    <button class="ctrl-btn" id="btn-interact">E</button>
+  <div id="ui">📖 <span id="diary-count">0</span>/5</div>
+  <div id="msg">Кликни для управления</div>
+  <div id="mobile">
+    <button class="btn" id="btn-l">←</button>
+    <button class="btn" id="btn-f">↑</button>
+    <button class="btn" id="btn-r">→</button>
+    <button class="btn" id="btn-b">↓</button>
+    <button class="btn" id="btn-e">E</button>
   </div>
 
   <script type="importmap">
-    {
-      "imports": {
-        "three": "https://unpkg.com/three@0.157.0/build/three.module.js",
-        "three/addons/": "https://unpkg.com/three@0.157.0/examples/jsm/"
-      }
-    }
+    { "imports": { "three": "https://unpkg.com/three@0.157.0/build/three.module.js", "three/addons/": "https://unpkg.com/three@0.157.0/examples/jsm/" } }
   </script>
 
   <script type="module">
     import * as THREE from 'three';
     import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js';
 
-    // ==================== ЗВУК ====================
-    const AudioContext = window.AudioContext || window.webkitAudioContext;
-    const audioCtx = new AudioContext();
-    function playSound(freq, type, vol, duration) {
-      if (audioCtx.state === 'suspended') audioCtx.resume();
-      const osc = audioCtx.createOscillator();
-      const gain = audioCtx.createGain();
-      osc.type = type; osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
-      gain.gain.setValueAtTime(vol, audioCtx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
-      osc.connect(gain); gain.connect(audioCtx.destination);
-      osc.start(); osc.stop(audioCtx.currentTime + duration);
-    }
-    function startAmbientWind() {
-      const bufferSize = 4096;
-      const noise = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
-      const data = noise.getChannelData(0);
-      for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
-      const source = audioCtx.createBufferSource();
-      source.buffer = noise; source.loop = true;
-      const filter = audioCtx.createBiquadFilter();
-      filter.type = 'lowpass'; filter.frequency.value = 500;
-      const gain = audioCtx.createGain();
-      gain.gain.value = 0.04;
-      source.connect(filter); filter.connect(gain); gain.connect(audioCtx.destination);
-      source.start();
-    }
+    // ================== ЗВУК ==================
+    const actx = new (window.AudioContext||window.webkitAudioContext)();
+    function beep(f,t,v,d) { if(actx.state=='suspended')actx.resume(); const o=actx.createOscillator(),g=actx.createGain(); o.type=t; o.frequency.value=f; g.gain.setValueAtTime(v,actx.currentTime); g.gain.exponentialRampToValueAtTime(0.001,actx.currentTime+d); o.connect(g); g.connect(actx.destination); o.start(); o.stop(actx.currentTime+d); }
+    function startWind() { const b=actx.createBuffer(1,4096,actx.sampleRate),d=b.getChannelData(0); for(let i=0;i<4096;i++)d[i]=Math.random()*2-1; const s=actx.createBufferSource(); s.buffer=b; s.loop=true; const f=actx.createBiquadFilter(); f.type='lowpass'; f.frequency.value=500; const g=actx.createGain(); g.gain.value=0.03; s.connect(f); f.connect(g); g.connect(actx.destination); s.start(); }
 
-    // ==================== ОСНОВНЫЕ ОБЪЕКТЫ ====================
+    // ================== СЦЕНА ==================
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x111122);
-    scene.fog = new THREE.FogExp2(0x111122, 0.012);
+    scene.background = new THREE.Color(0x1a1a2e);
+    scene.fog = new THREE.FogExp2(0x1a1a2e, 0.008);
 
-    const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 80);
-    camera.position.set(5, 1.7, 12);
+    const camera = new THREE.PerspectiveCamera(70, innerWidth/innerHeight, 0.1, 60);
+    camera.position.set(0, 1.7, 5);
 
-    const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
-    renderer.setSize(window.innerWidth, window.innerHeight);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    const renderer = new THREE.WebGLRenderer({antialias:false});
+    renderer.setSize(innerWidth, innerHeight);
+    renderer.setPixelRatio(Math.min(devicePixelRatio,2));
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     document.body.appendChild(renderer.domElement);
 
-    // ==================== УПРАВЛЕНИЕ ====================
-    const controls = new PointerLockControls(camera, document.body);
-    controls.addEventListener('lock', () => {
-      document.getElementById('message').style.opacity = '0';
-    });
-    controls.addEventListener('unlock', () => {
-      document.getElementById('message').style.opacity = '1';
-    });
-    document.body.addEventListener('click', () => {
-      if (!controls.isLocked) controls.lock();
-    });
+    // ================== ТЕКСТУРЫ ==================
+    function tex(w,h,cb) { const cv=document.createElement('canvas'); cv.width=w; cv.height=h; const ctx=cv.getContext('2d'); cb(ctx); const t=new THREE.CanvasTexture(cv); t.minFilter=t.magFilter=THREE.NearestFilter; t.wrapS=t.wrapT=THREE.RepeatWrapping; t.colorSpace=THREE.SRGBColorSpace; return t; }
+    const brick = tex(64,64,ctx=>{ ctx.fillStyle='#5a4a3a'; ctx.fillRect(0,0,64,64); for(let y=0;y<8;y++)for(let x=0;x<4;x++){ ctx.fillStyle=Math.random()<0.5?'#6b5b4b':'#4a3a2a'; ctx.fillRect(x*16+1,y*8+1,14,6); }});
+    const concrete = tex(64,64,ctx=>{ ctx.fillStyle='#7a7a7a'; ctx.fillRect(0,0,64,64); for(let i=0;i<300;i++){ const s=100+Math.random()*80|0; ctx.fillStyle=`rgb(${s},${s},${s})`; ctx.fillRect(Math.random()*64,Math.random()*64,2,2); }});
+    const rust = tex(64,64,ctx=>{ ctx.fillStyle='#4a2a1a'; ctx.fillRect(0,0,64,64); for(let i=0;i<400;i++){ ctx.fillStyle=['#8b4513','#a0522d','#6b3410'][Math.random()*3|0]; ctx.fillRect(Math.random()*64,Math.random()*64,1,1); }});
+    const asphalt = tex(64,64,ctx=>{ ctx.fillStyle='#2a2a2a'; ctx.fillRect(0,0,64,64); for(let i=0;i<200;i++){ ctx.fillStyle='#333'; ctx.fillRect(Math.random()*64,Math.random()*64,2,2); }});
+    const windowTex = tex(64,64,ctx=>{ ctx.fillStyle='#111'; ctx.fillRect(0,0,64,64); ctx.fillStyle='#333'; ctx.fillRect(8,8,20,20); ctx.fillStyle='#555'; ctx.fillRect(10,10,16,16); ctx.fillStyle='#111'; ctx.fillRect(12,12,12,12); });
+    const doorTex = tex(64,64,ctx=>{ ctx.fillStyle='#3a2a1a'; ctx.fillRect(0,0,64,64); ctx.fillStyle='#5a4a3a'; ctx.fillRect(4,4,56,56); ctx.fillStyle='#2a1a0a'; ctx.fillRect(8,8,48,48); });
 
-    const keyState = { w: false, a: false, s: false, d: false, e: false };
-    window.addEventListener('keydown', (e) => {
-      switch(e.key.toLowerCase()) {
-        case 'w': keyState.w = true; e.preventDefault(); break;
-        case 'a': keyState.a = true; e.preventDefault(); break;
-        case 's': keyState.s = true; e.preventDefault(); break;
-        case 'd': keyState.d = true; e.preventDefault(); break;
-        case 'e': keyState.e = true; e.preventDefault(); break;
+    // ================== УРОВЕНЬ ==================
+    const MAP_W = 24, MAP_H = 20;
+    const CELL = 1.5;
+    // карта: 0-пусто,1-стена,2-тротуар,3-подъезд,4-гараж
+    const map = new Uint8Array(MAP_W*MAP_H);
+    function setMap(x,z,v){ map[z*MAP_W+x]=v; }
+    // Границы уровня
+    for(let x=0;x<MAP_W;x++) for(let z=0;z<MAP_H;z++) { if(x==0||x==MAP_W-1||z==0||z==MAP_H-1) setMap(x,z,1); }
+    // Улица (широкая полоса) по центру Z
+    const roadZ = 9, roadWidth = 5;
+    for(let z=roadZ; z<roadZ+roadWidth; z++) for(let x=1; x<MAP_W-1; x++) setMap(x,z,0);
+    // Тротуары
+    for(let x=1; x<MAP_W-1; x++) { setMap(x,roadZ-1,2); setMap(x,roadZ+roadWidth,2); }
+    // Дома вдоль тротуаров (стены)
+    for(let side=0; side<2; side++) {
+      const zHouse = side==0 ? 2 : MAP_H-3;
+      for(let x=3; x<MAP_W-3; x+=4) {
+        for(let dx=0; dx<3; dx++) { setMap(x+dx, zHouse,1); setMap(x+dx, zHouse+1,1); } // коробка 3x2
+        if(Math.random()<0.7) setMap(x+1, zHouse,3); // подъезд
       }
-    });
-    window.addEventListener('keyup', (e) => {
-      switch(e.key.toLowerCase()) {
-        case 'w': keyState.w = false; e.preventDefault(); break;
-        case 'a': keyState.a = false; e.preventDefault(); break;
-        case 's': keyState.s = false; e.preventDefault(); break;
-        case 'd': keyState.d = false; e.preventDefault(); break;
-        case 'e': keyState.e = false; e.preventDefault(); break;
-      }
-    });
-
-    // Мобильные кнопки
-    document.getElementById('btn-forward').addEventListener('pointerdown', () => keyState.w = true);
-    document.getElementById('btn-forward').addEventListener('pointerup', () => keyState.w = false);
-    document.getElementById('btn-left').addEventListener('pointerdown', () => keyState.a = true);
-    document.getElementById('btn-left').addEventListener('pointerup', () => keyState.a = false);
-    document.getElementById('btn-back').addEventListener('pointerdown', () => keyState.s = true);
-    document.getElementById('btn-back').addEventListener('pointerup', () => keyState.s = false);
-    document.getElementById('btn-right').addEventListener('pointerdown', () => keyState.d = true);
-    document.getElementById('btn-right').addEventListener('pointerup', () => keyState.d = false);
-    document.getElementById('btn-interact').addEventListener('pointerdown', () => { keyState.e = true; setTimeout(() => keyState.e = false, 150); });
-
-    // ==================== ПРОЦЕДУРНЫЕ ТЕКСТУРЫ ====================
-    function createCanvasTexture(width, height, drawFunc) {
-      const canvas = document.createElement('canvas');
-      canvas.width = width; canvas.height = height;
-      const ctx = canvas.getContext('2d');
-      drawFunc(ctx);
-      const tex = new THREE.CanvasTexture(canvas);
-      tex.minFilter = THREE.NearestFilter;
-      tex.magFilter = THREE.NearestFilter;
-      tex.wrapS = THREE.RepeatWrapping;
-      tex.wrapT = THREE.RepeatWrapping;
-      tex.colorSpace = THREE.SRGBColorSpace;
-      return tex;
     }
+    // Гаражи сбоку
+    for(let x=2; x<MAP_W-2; x+=5) { if(map[(roadZ-2)*MAP_W+x]==0) setMap(x, roadZ-2,4); }
 
-    const brickTex = createCanvasTexture(64, 64, ctx => {
-      ctx.fillStyle = '#5a4a3a'; ctx.fillRect(0,0,64,64);
-      for (let y = 0; y < 8; y++) {
-        for (let x = 0; x < 4; x++) {
-          ctx.fillStyle = Math.random() < 0.5 ? '#6b5b4b' : '#4a3a2a';
-          ctx.fillRect(x*16+1, y*8+1, 14, 6);
-        }
-      }
-    });
-    const concreteTex = createCanvasTexture(64, 64, ctx => {
-      ctx.fillStyle = '#808080'; ctx.fillRect(0,0,64,64);
-      for (let i = 0; i < 300; i++) {
-        const shade = 80 + Math.random() * 60 | 0;
-        ctx.fillStyle = `rgb(${shade},${shade},${shade})`;
-        ctx.fillRect(Math.random()*64, Math.random()*64, 2, 2);
-      }
-    });
-    const rustTex = createCanvasTexture(64, 64, ctx => {
-      ctx.fillStyle = '#4a2a1a'; ctx.fillRect(0,0,64,64);
-      for (let i = 0; i < 400; i++) {
-        ctx.fillStyle = ['#8b4513','#a0522d','#6b3410'][Math.floor(Math.random()*3)];
-        ctx.fillRect(Math.random()*64, Math.random()*64, 1, 1);
-      }
-    });
-    const floorTex = createCanvasTexture(64, 64, ctx => {
-      ctx.fillStyle = '#333'; ctx.fillRect(0,0,64,64);
-      for (let y = 0; y < 8; y++) {
-        for (let x = 0; x < 8; x++) {
-          ctx.fillStyle = Math.random() < 0.5 ? '#444' : '#222';
-          ctx.fillRect(x*8, y*8, 7, 7);
-        }
-      }
-    });
-    const woodTex = createCanvasTexture(64, 64, ctx => {
-      ctx.fillStyle = '#5c4033'; ctx.fillRect(0,0,64,64);
-      for (let i = 0; i < 100; i++) {
-        ctx.fillStyle = Math.random() < 0.5 ? '#6b4c3b' : '#4a3020';
-        ctx.fillRect(Math.random()*64, Math.random()*64, 4, 1);
-      }
-    });
+    // Геометрия стен
+    const wallGeo = new THREE.BoxGeometry(CELL, 2.5, CELL);
+    const wallMats = [new THREE.MeshStandardMaterial({map:brick,roughness:0.9}), new THREE.MeshStandardMaterial({map:concrete,roughness:0.8}), new THREE.MeshStandardMaterial({map:rust,roughness:0.7})];
+    const floorGeo = new THREE.PlaneGeometry(MAP_W*CELL, MAP_H*CELL);
+    const floor = new THREE.Mesh(floorGeo, new THREE.MeshStandardMaterial({map:asphalt,roughness:0.9}));
+    floor.rotation.x = -Math.PI/2; floor.position.y = -0.01; floor.receiveShadow=true; scene.add(floor);
 
-    // ==================== КАРТА УРОВНЯ ====================
-    // Карта 20x20 клеток (каждая 1.2 метра)
-    const MAP_SIZE = 20;
-    const CELL_SIZE = 1.2;
-    // Типы клеток: 0 - пусто, 1 - стена, 2 - дверь (не проходим, но визуально другой блок), 3 - внутренняя перегородка
-    // Но для коллизий стены это >=1
-    const map = [
-      1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
-      1,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,1,
-      1,0,1,1,1,0,1,0,1,1,1,0,1,1,1,0,0,0,0,1,
-      1,0,1,0,1,0,0,0,1,0,0,0,0,0,1,0,0,0,0,1,
-      1,0,1,0,1,1,1,0,1,1,1,1,0,0,1,0,0,0,0,1,
-      1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,
-      1,0,1,1,1,0,1,1,1,0,1,1,1,1,1,0,0,0,0,1,
-      1,0,0,0,1,0,0,0,1,0,0,0,0,0,0,0,0,0,0,1,
-      1,0,0,0,1,1,1,0,1,0,0,0,0,0,0,0,0,0,0,1,
-      1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,
-      1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
-    ];
-    const MAP_WIDTH = MAP_SIZE;
-    const MAP_HEIGHT = 11;
-
-    // Генерация геометрии уровня
-    const wallMat1 = new THREE.MeshStandardMaterial({ map: brickTex, roughness: 0.9 });
-    const wallMat2 = new THREE.MeshStandardMaterial({ map: concreteTex, roughness: 0.8 });
-    const wallMat3 = new THREE.MeshStandardMaterial({ map: rustTex, roughness: 0.7 });
-    const wallMats = [wallMat1, wallMat2, wallMat3];
-
-    const wallGeo = new THREE.BoxGeometry(CELL_SIZE, 2.4, CELL_SIZE);
-    const groundGeo = new THREE.PlaneGeometry(MAP_WIDTH * CELL_SIZE, MAP_HEIGHT * CELL_SIZE);
-    const groundMat = new THREE.MeshStandardMaterial({ map: floorTex, roughness: 0.9 });
-    const ground = new THREE.Mesh(groundGeo, groundMat);
-    ground.rotation.x = -Math.PI/2;
-    ground.position.y = -0.01;
-    ground.receiveShadow = true;
-    scene.add(ground);
-
-    // Расстановка стен по карте
-    for (let z = 0; z < MAP_HEIGHT; z++) {
-      for (let x = 0; x < MAP_WIDTH; x++) {
-        const cell = map[z * MAP_WIDTH + x];
-        if (cell === 1) {
-          const wall = new THREE.Mesh(wallGeo, wallMats[Math.floor(Math.random() * 3)]);
-          wall.position.set(x * CELL_SIZE - MAP_WIDTH*CELL_SIZE/2, 1.2, z * CELL_SIZE - MAP_HEIGHT*CELL_SIZE/2);
-          wall.castShadow = true;
-          wall.receiveShadow = true;
+    // Расстановка объектов по карте
+    for(let z=0; z<MAP_H; z++) {
+      for(let x=0; x<MAP_W; x++) {
+        const cell = map[z*MAP_W+x];
+        if(cell===1) {
+          const mat = wallMats[Math.floor(Math.random()*3)];
+          const wall = new THREE.Mesh(wallGeo, mat);
+          wall.position.set(x*CELL - MAP_W*CELL/2, 1.25, z*CELL - MAP_H*CELL/2);
+          wall.castShadow=true; wall.receiveShadow=true;
           scene.add(wall);
-        } else if (cell === 2) { // дверь (визуально как проём, но непроходима пока не соберём дневники)
-          const door = new THREE.Mesh(wallGeo, new THREE.MeshStandardMaterial({ color: 0x442211, transparent: true, opacity: 0.4 }));
-          door.position.set(x * CELL_SIZE - MAP_WIDTH*CELL_SIZE/2, 1.2, z * CELL_SIZE - MAP_HEIGHT*CELL_SIZE/2);
-          door.castShadow = true;
-          door.receiveShadow = true;
-          door.userData.isDoor = true;
+        } else if(cell===3) {
+          // подъезд (дверь)
+          const door = new THREE.Mesh(new THREE.BoxGeometry(CELL*0.6, 2.2, CELL*0.3), new THREE.MeshStandardMaterial({map:doorTex}));
+          door.position.set(x*CELL - MAP_W*CELL/2, 1.1, z*CELL - MAP_H*CELL/2);
+          door.castShadow=true; door.receiveShadow=true;
+          door.userData.isDoor=true; // пока закрыта
           scene.add(door);
+        } else if(cell===4) {
+          const garage = new THREE.Mesh(new THREE.BoxGeometry(CELL*1.2, 1.5, CELL*1.2), new THREE.MeshStandardMaterial({map:rust}));
+          garage.position.set(x*CELL - MAP_W*CELL/2, 0.75, z*CELL - MAP_H*CELL/2);
+          garage.castShadow=true; garage.receiveShadow=true;
+          scene.add(garage);
         }
       }
     }
 
-    // Дополнительно: расставим внутренние стены домов вручную (ячейки, не обозначенные на карте, будем ставить позже)
-    // Но пока достаточно карты.
-
-    // ==================== ПРОТИВНИКИ ====================
-    const enemies = [];
-    const enemyGeo = new THREE.CylinderGeometry(0.3, 0.4, 1.8, 8);
-    const enemyMat = new THREE.MeshStandardMaterial({ color: 0x111111, emissive: 0x220000, roughness: 0.5 });
-    function spawnEnemy(x, z) {
-      const enemy = new THREE.Mesh(enemyGeo, enemyMat);
-      enemy.position.set(x, 0.9, z);
-      enemy.castShadow = true;
-      enemy.receiveShadow = true;
-      enemy.userData = {
-        speed: 0.9 + Math.random() * 0.6,
-        alertRange: 5.5,
-        attackRange: 0.9,
-        patrolAngle: Math.random() * Math.PI * 2,
-        alerted: false,
-        soundCooldown: 0
-      };
-      scene.add(enemy);
-      enemies.push(enemy);
-    }
-    spawnEnemy(-3, -2);
-    spawnEnemy(4, 3);
-    spawnEnemy(0, -6);
-    spawnEnemy(-7, 4);
-    spawnEnemy(6, -4);
-
-    // ==================== ДНЕВНИКИ (СОБИРАЕМЫЕ) ====================
-    const diaries = [];
-    const diaryGeo = new THREE.BoxGeometry(0.25, 0.08, 0.35);
-    const diaryMat = new THREE.MeshStandardMaterial({ color: 0x8b0000, emissive: 0x330000, roughness: 0.3 });
-    function placeDiary(x, z) {
-      const diary = new THREE.Mesh(diaryGeo, diaryMat);
-      diary.position.set(x, 0.15, z);
-      diary.rotation.y = Math.random() * Math.PI;
-      diary.userData.isDiary = true;
-      scene.add(diary);
-      diaries.push(diary);
-    }
-    placeDiary(-5, -4);
-    placeDiary(5, -5);
-    placeDiary(2, 5);
-    placeDiary(-6, 3);
-    placeDiary(-1, -7);
-
-    // ==================== ОСВЕЩЕНИЕ ====================
-    const ambientLight = new THREE.AmbientLight(0x334455);
-    scene.add(ambientLight);
-    const dirLight = new THREE.DirectionalLight(0x556677, 0.6);
-    dirLight.position.set(5, 10, 5);
-    dirLight.castShadow = true;
-    dirLight.shadow.mapSize.width = 512;
-    dirLight.shadow.mapSize.height = 512;
-    dirLight.shadow.camera.near = 0.5;
-    dirLight.shadow.camera.far = 50;
-    scene.add(dirLight);
-    // фонарик
-    const flashlight = new THREE.SpotLight(0xccbb99, 1.5, 10, Math.PI/7, 0.1);
-    flashlight.position.set(0, 0, 0);
-    flashlight.target.position.set(0, 0, -1);
-    camera.add(flashlight);
-    camera.add(flashlight.target);
-
-    // ==================== СОСТОЯНИЕ ИГРЫ ====================
-    let diaryCount = 0;
-    const totalDiaries = 5;
-    let gameOver = false;
-    let gameWin = false;
-
-    function updateUI() {
-      document.getElementById('diary-count').textContent = diaryCount;
-      if (diaryCount >= totalDiaries) {
-        // открыть все двери
-        scene.children.forEach(child => {
-          if (child.userData.isDoor) {
-            child.material.opacity = 0.1;
-            child.material.transparent = true;
-            child.userData.isOpen = true;
+    // Окна на домах (декоративные плоскости)
+    const windowGeo = new THREE.PlaneGeometry(0.6, 0.8);
+    const windowMat = new THREE.MeshStandardMaterial({map:windowTex, emissive:new THREE.Color(0x111122)});
+    for(let z=0; z<MAP_H; z++) {
+      for(let x=0; x<MAP_W; x++) {
+        if(map[z*MAP_W+x]==1) {
+          // развесить окна на стенах домов
+          if(x>1 && x<MAP_W-2 && (z==2||z==3||z==MAP_H-3||z==MAP_H-4)) {
+            const win = new THREE.Mesh(windowGeo, windowMat);
+            win.position.set(x*CELL - MAP_W*CELL/2, 1.3, z*CELL - MAP_H*CELL/2);
+            if(z==2||z==3) win.position.z += CELL/2+0.01; else win.position.z -= CELL/2+0.01;
+            if(Math.random()<0.8) scene.add(win);
           }
-        });
+        }
       }
     }
 
-    // ==================== КОЛЛИЗИИ И ПЕРЕМЕЩЕНИЕ ====================
-    function worldToGrid(x, z) {
-      const gx = Math.floor((x + MAP_WIDTH*CELL_SIZE/2) / CELL_SIZE);
-      const gz = Math.floor((z + MAP_HEIGHT*CELL_SIZE/2) / CELL_SIZE);
-      return { x: gx, z: gz };
+    // ================== ПРОТИВНИКИ ==================
+    const enemies = [];
+    const enemyGeo = new THREE.CylinderGeometry(0.3,0.4,1.8,8);
+    const enemyMat = new THREE.MeshStandardMaterial({color:0x111, emissive:0x220000});
+    function spawnEnemy(x,z) {
+      const e = new THREE.Mesh(enemyGeo, enemyMat);
+      e.position.set(x, 0.9, z);
+      e.castShadow=true;
+      e.userData={speed:0.7+Math.random()*0.5, alertRange:6, attackRange:1.0, patrolAngle:Math.random()*Math.PI*2, alerted:false, cooldown:0};
+      scene.add(e);
+      enemies.push(e);
     }
+    spawnEnemy(-4, 2); spawnEnemy(5, 3); spawnEnemy(-6, 8); spawnEnemy(7, 6); spawnEnemy(2, -4); spawnEnemy(-3, -5);
 
-    function isPassable(x, z) {
-      const g = worldToGrid(x, z);
-      if (g.x < 0 || g.x >= MAP_WIDTH || g.z < 0 || g.z >= MAP_HEIGHT) return false;
-      const cell = map[g.z * MAP_WIDTH + g.x];
-      if (cell === 1) return false;
-      if (cell === 2) {
-        // дверь открыта, если собраны все дневники
-        return diaryCount >= totalDiaries;
-      }
+    // ================== ДНЕВНИКИ ==================
+    const diaries = [];
+    const diaryGeo = new THREE.BoxGeometry(0.25,0.08,0.35);
+    const diaryMat = new THREE.MeshStandardMaterial({color:0x8b0000, emissive:0x330000});
+    function placeDiary(x,z) {
+      const d = new THREE.Mesh(diaryGeo, diaryMat);
+      d.position.set(x, 0.15, z);
+      d.rotation.y = Math.random()*Math.PI;
+      scene.add(d);
+      diaries.push(d);
+    }
+    placeDiary(-6, 3); placeDiary(5, -3); placeDiary(0, 6); placeDiary(-4, -6); placeDiary(7, 2);
+
+    // ================== ОСВЕЩЕНИЕ ==================
+    scene.add(new THREE.AmbientLight(0x334455));
+    const dir = new THREE.DirectionalLight(0x556677, 0.5);
+    dir.position.set(10,15,10); dir.castShadow=true; scene.add(dir);
+    const flash = new THREE.SpotLight(0xccbb99, 1.8, 12, Math.PI/7, 0.1);
+    flash.position.set(0,0,0); flash.target.position.set(0,0,-1);
+    camera.add(flash); camera.add(flash.target);
+
+    // ================== УПРАВЛЕНИЕ ==================
+    const controls = new PointerLockControls(camera, document.body);
+    controls.addEventListener('lock',()=>document.getElementById('msg').style.opacity='0');
+    controls.addEventListener('unlock',()=>document.getElementById('msg').style.opacity='1');
+    document.body.addEventListener('click',()=>{ if(!controls.isLocked)controls.lock(); });
+    const keys={w:false,a:false,s:false,d:false,e:false};
+    window.addEventListener('keydown',e=>{ const k=e.key.toLowerCase(); if(k in keys){keys[k]=true;e.preventDefault();} });
+    window.addEventListener('keyup',e=>{ const k=e.key.toLowerCase(); if(k in keys){keys[k]=false;e.preventDefault();} });
+    document.getElementById('btn-f').addEventListener('pointerdown',()=>keys.w=true);
+    document.getElementById('btn-f').addEventListener('pointerup',()=>keys.w=false);
+    document.getElementById('btn-l').addEventListener('pointerdown',()=>keys.a=true);
+    document.getElementById('btn-l').addEventListener('pointerup',()=>keys.a=false);
+    document.getElementById('btn-b').addEventListener('pointerdown',()=>keys.s=true);
+    document.getElementById('btn-b').addEventListener('pointerup',()=>keys.s=false);
+    document.getElementById('btn-r').addEventListener('pointerdown',()=>keys.d=true);
+    document.getElementById('btn-r').addEventListener('pointerup',()=>keys.d=false);
+    document.getElementById('btn-e').addEventListener('pointerdown',()=>{keys.e=true;setTimeout(()=>keys.e=false,150);});
+
+    // ================== КОЛЛИЗИИ ==================
+    function worldToGrid(x,z) {
+      return { x: Math.floor((x + MAP_W*CELL/2)/CELL), z: Math.floor((z + MAP_H*CELL/2)/CELL) };
+    }
+    function isPassable(x,z) {
+      const g = worldToGrid(x,z);
+      if(g.x<0||g.x>=MAP_W||g.z<0||g.z>=MAP_H) return false;
+      const c = map[g.z*MAP_W+g.x];
+      if(c===1||c===2||c===4) return false;
+      if(c===3) return diaryCount>=5; // подъезд открыт после сбора всех
       return true;
     }
 
-    // ==================== ИГРОВОЙ ЦИКЛ ====================
-    function handleInteraction() {
-      if (gameOver || gameWin) return;
-      // Сбор дневников
-      const playerPos = camera.position;
-      for (let i = diaries.length - 1; i >= 0; i--) {
-        const d = diaries[i];
-        if (playerPos.distanceTo(d.position) < 1.2) {
-          scene.remove(d);
-          diaries.splice(i, 1);
-          diaryCount++;
-          updateUI();
-          playSound(600, 'square', 0.2, 0.2);
-        }
+    // ================== СОСТОЯНИЕ ==================
+    let diaryCount = 0;
+    let gameOver = false;
+    const totalDiaries = 5;
+
+    function updateUI() {
+      document.getElementById('diary-count').textContent = diaryCount;
+      if(diaryCount>=totalDiaries) {
+        // открыть все двери
+        scene.traverse(child=>{ if(child.userData.isDoor) child.visible=false; });
       }
     }
 
-    function updateEnemies(deltaTime) {
-      enemies.forEach(enemy => {
-        const playerPos = camera.position;
-        const dist = enemy.position.distanceTo(playerPos);
-        const data = enemy.userData;
-
-        if (dist < data.alertRange) data.alerted = true;
-        if (data.alerted) {
-          // Преследование
-          const dir = new THREE.Vector3().copy(playerPos).sub(enemy.position).normalize();
-          const moveSpeed = data.speed * deltaTime * 3;
-          enemy.position.x += dir.x * moveSpeed;
-          enemy.position.z += dir.z * moveSpeed;
-          // Звук преследования
-          if (dist < 3 && data.soundCooldown <= 0) {
-            playSound(40 + Math.random()*10, 'sawtooth', 0.08, 0.8);
-            data.soundCooldown = 1.5;
-          }
-          if (data.soundCooldown > 0) data.soundCooldown -= deltaTime;
-        } else {
-          // Патруль
-          data.patrolAngle += deltaTime * 0.8;
-          enemy.position.x += Math.sin(data.patrolAngle) * 0.02;
-          enemy.position.z += Math.cos(data.patrolAngle) * 0.02;
+    // ================== ИГРОВОЙ ЦИКЛ ==================
+    function handleInteract() {
+      const pos = camera.position;
+      for(let i=diaries.length-1;i>=0;i--) {
+        if(pos.distanceTo(diaries[i].position)<1.3) {
+          scene.remove(diaries[i]); diaries.splice(i,1);
+          diaryCount++; updateUI(); beep(600,'square',0.2,0.2);
         }
-
-        // Смерть при касании
-        if (dist < data.attackRange) {
-          gameOver = true;
-          alert('Тень поглотила тебя...');
-          location.reload();
-        }
-      });
+      }
     }
 
     let lastTime = performance.now();
     function animate() {
       const time = performance.now();
-      const deltaTime = Math.min(0.05, (time - lastTime) / 1000);
+      const dt = Math.min(0.05, (time-lastTime)/1000);
       lastTime = time;
-
       requestAnimationFrame(animate);
 
-      if (gameOver || gameWin) {
-        renderer.render(scene, camera);
-        return;
-      }
+      if(gameOver) { renderer.render(scene,camera); return; }
 
-      // Движение игрока
-      if (controls.isLocked) {
-        const speed = 2.8;
-        const moveX = (keyState.d ? 1 : 0) - (keyState.a ? 1 : 0);
-        const moveZ = (keyState.w ? 1 : 0) - (keyState.s ? 1 : 0);
-        if (moveX !== 0 || moveZ !== 0) {
-          const forward = new THREE.Vector3();
-          camera.getWorldDirection(forward);
-          forward.y = 0;
-          forward.normalize();
-          const right = new THREE.Vector3().crossVectors(forward, camera.up).normalize();
-          const moveDelta = new THREE.Vector3()
-            .addScaledVector(forward, moveZ)
-            .addScaledVector(right, moveX);
-          if (moveDelta.length() > 0) {
-            moveDelta.normalize().multiplyScalar(speed * deltaTime);
-            const newPos = camera.position.clone().add(moveDelta);
-            if (isPassable(newPos.x, newPos.z)) {
-              camera.position.copy(newPos);
-            }
-          }
+      if(controls.isLocked) {
+        const spd = 3.0;
+        const fwd = new THREE.Vector3(); camera.getWorldDirection(fwd); fwd.y=0; fwd.normalize();
+        const right = new THREE.Vector3().crossVectors(fwd, camera.up).normalize();
+        const move = new THREE.Vector3();
+        if(keys.w) move.add(fwd);
+        if(keys.s) move.sub(fwd);
+        if(keys.d) move.add(right);
+        if(keys.a) move.sub(right);
+        if(move.length()>0) {
+          move.normalize().multiplyScalar(spd*dt);
+          const np = camera.position.clone().add(move);
+          if(isPassable(np.x, np.z)) camera.position.copy(np);
         }
       }
 
-      // Взаимодействие
-      if (keyState.e) {
-        keyState.e = false;
-        handleInteraction();
-      }
+      if(keys.e) { keys.e=false; handleInteract(); }
 
-      updateEnemies(deltaTime);
+      // Враги
+      enemies.forEach(e=>{
+        const p = camera.position, d = e.position.distanceTo(p);
+        if(d < e.userData.alertRange) e.userData.alerted = true;
+        if(e.userData.alerted) {
+          const dir = new THREE.Vector3().copy(p).sub(e.position).normalize();
+          e.position.x += dir.x * e.userData.speed * dt * 2.5;
+          e.position.z += dir.z * e.userData.speed * dt * 2.5;
+          if(d<2.5 && e.userData.cooldown<=0) { beep(40+Math.random()*10,'sawtooth',0.08,0.7); e.userData.cooldown=1.2; }
+          if(e.userData.cooldown>0) e.userData.cooldown-=dt;
+        } else {
+          e.userData.patrolAngle += dt*0.7;
+          e.position.x += Math.sin(e.userData.patrolAngle)*0.02;
+          e.position.z += Math.cos(e.userData.patrolAngle)*0.02;
+        }
+        if(d < e.userData.attackRange) { gameOver=true; alert('Тень поглотила тебя...'); location.reload(); }
+      });
+
       updateUI();
-
-      // Фонарик следует за камерой
-      flashlight.position.copy(camera.position);
-      flashlight.target.position.copy(camera.position).add(new THREE.Vector3(0,0,-1).applyQuaternion(camera.quaternion));
-
-      renderer.render(scene, camera);
+      flash.position.copy(camera.position);
+      flash.target.position.copy(camera.position).add(new THREE.Vector3(0,0,-1).applyQuaternion(camera.quaternion));
+      renderer.render(scene,camera);
     }
 
-    // ==================== СТАРТ ====================
-    startAmbientWind();
+    startWind();
     updateUI();
     animate();
 
-    window.addEventListener('resize', () => {
-      camera.aspect = window.innerWidth / window.innerHeight;
+    window.addEventListener('resize',()=>{
+      camera.aspect = innerWidth/innerHeight;
       camera.updateProjectionMatrix();
-      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.setSize(innerWidth,innerHeight);
     });
 
-    // Сохранение прогресса
-    window.addEventListener('beforeunload', () => {
-      localStorage.setItem('doom_diaries', diaryCount);
-    });
-    const saved = parseInt(localStorage.getItem('doom_diaries'));
-    if (saved && saved > 0) {
-      diaryCount = Math.min(saved, totalDiaries);
-      // Удаляем соответствующее количество дневников со сцены
-      for (let i = 0; i < diaryCount && diaries.length > 0; i++) {
-        const d = diaries.pop();
-        scene.remove(d);
-      }
-      updateUI();
-    }
+    // Сохранение
+    window.addEventListener('beforeunload',()=>{ localStorage.setItem('soviet_diaries',diaryCount); });
+    const saved = parseInt(localStorage.getItem('soviet_diaries'));
+    if(saved>0) { diaryCount=Math.min(saved,totalDiaries); for(let i=0;i<diaryCount&&diaries.length;i++){ scene.remove(diaries.pop()); } updateUI(); }
   </script>
 </body>
 </html>
