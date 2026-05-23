@@ -1,457 +1,366 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
-  <title>Глубина</title>
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { background: #000; overflow: hidden; touch-action: none; }
-    canvas { display: block; position: absolute; top: 0; left: 0; }
-    #ui-container {
-      position: fixed; bottom: 20px; left: 0; right: 0;
-      display: none; justify-content: center; gap: 40px; z-index: 10;
-    }
-    .touch-btn {
-      width: 70px; height: 70px; border-radius: 35px;
-      background: rgba(255,255,255,0.1); backdrop-filter: blur(20px);
-      border: 1px solid rgba(255,255,255,0.2);
-      color: white; font-size: 36px; display: flex;
-      align-items: center; justify-content: center;
-      user-select: none; -webkit-user-select: none;
-    }
-    @media (pointer: coarse) {
-      #ui-container { display: flex; }
-    }
-  </style>
-  <link rel="manifest" href="data:application/manifest+json,{name:'Глубина',short_name:'Глубина',start_url:'.',display:'standalone',background_color:'#000',theme_color:'#000',icons:[{src:'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAAXNSR0IArs4c6QAAAMhJREFUWEft1rENwjAQBdD/F0jJGAFJyMzClDQZWCNuwAhUjAAjYAXCvYOdCHyylAsufsn9/bv/l0p8UuBwgQ0NPMBOBc5Q1iMEqHMdk2q+BgggUQHrPoFYJOA7UPaXQ/AQj2q6AM+RAI9y1QWAABUwG0AiJVR7gQoOkQCMygVEC4xMcyIP8IgGTKjF7wKERgG5CJAcCWIGMEVq/D4g0QGiBfj3A6wOWO8D7J0Yd/vAAuw8AAAAAA+gnwABkYCGFAgFfAAAAAElFTkSuQmCC',sizes:'32x32',type:'image/png'}]}">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Улица Мира, 13</title>
+    <style>
+        body { margin: 0; overflow: hidden; background: #000; font-family: monospace; }
+        canvas { display: block; }
+        #ui {
+            position: absolute; top: 20px; left: 20px;
+            color: #ccc; font-size: 18px; text-shadow: 0 0 10px black;
+            pointer-events: none;
+        }
+        #message {
+            position: absolute; bottom: 80px; left: 50%; transform: translateX(-50%);
+            color: #fff; background: rgba(0,0,0,0.7); padding: 8px 20px;
+            border-radius: 20px; font-size: 14px; opacity: 0; transition: opacity 0.3s;
+        }
+        #mobile-controls {
+            position: absolute; bottom: 20px; left: 0; right: 0;
+            display: none; justify-content: center; gap: 20px; z-index: 10;
+        }
+        .ctrl-btn {
+            width: 60px; height: 60px; border-radius: 30px;
+            background: rgba(255,255,255,0.15); backdrop-filter: blur(10px);
+            border: 1px solid rgba(255,255,255,0.3);
+            color: white; font-size: 28px; display: flex;
+            align-items: center; justify-content: center;
+            user-select: none; -webkit-user-select: none;
+        }
+        @media (pointer: coarse) {
+            #mobile-controls { display: flex; }
+        }
+    </style>
 </head>
 <body>
-  <canvas id="game"></canvas>
-  <div id="ui-container">
-    <button class="touch-btn" id="btn-left">←</button>
-    <button class="touch-btn" id="btn-right">→</button>
-    <button class="touch-btn" id="btn-jump">↑</button>
-  </div>
-  <script>
-    // ==================== ГЛУБИНА: ПИКСЕЛЬНЫЙ ПЛАТФОРМЕР ====================
-    const canvas = document.getElementById('game');
-    const ctx = canvas.getContext('2d');
-    canvas.width = 480; canvas.height = 320; // фиксированное игровое разрешение
-    ctx.imageSmoothingEnabled = false;
+    <div id="ui">Дневников: <span id="diary-count">0</span>/3</div>
+    <div id="message"></div>
+    <div id="mobile-controls">
+        <button class="ctrl-btn" id="btn-left">←</button>
+        <button class="ctrl-btn" id="btn-forward">↑</button>
+        <button class="ctrl-btn" id="btn-right">→</button>
+        <button class="ctrl-btn" id="btn-back">↓</button>
+        <button class="ctrl-btn" id="btn-interact">E</button>
+    </div>
 
-    // Масштабирование под экран
-    function resize() {
-      const scale = Math.min(window.innerWidth / 480, window.innerHeight / 320);
-      canvas.style.width = 480 * scale + 'px';
-      canvas.style.height = 320 * scale + 'px';
-    }
-    window.addEventListener('resize', resize);
-    resize();
+    <script type="importmap">
+        { "imports": { "three": "https://unpkg.com/three@0.157.0/build/three.module.js", "three/addons/": "https://unpkg.com/three@0.157.0/examples/jsm/" } }
+    </script>
 
-    // ==================== ЗВУК ====================
-    let audioCtx = null;
-    function initAudio() {
-      if (audioCtx) return;
-      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    }
-    function playSound(freq, type, duration, vol = 0.1, detune = 0) {
-      if (!audioCtx) return;
-      const osc = audioCtx.createOscillator();
-      const gain = audioCtx.createGain();
-      osc.type = type;
-      osc.frequency.value = freq;
-      osc.detune.value = detune;
-      gain.gain.setValueAtTime(vol, audioCtx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
-      osc.connect(gain);
-      gain.connect(audioCtx.destination);
-      osc.start();
-      osc.stop(audioCtx.currentTime + duration);
-    }
-    // фоновые звуки (дождь, сердце)
-    let rainNode = null, heartNode = null;
-    function startAmbient() {
-      if (!audioCtx || rainNode) return;
-      // дождь: белый шум
-      const bufferSize = 4096;
-      const noiseBuffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
-      const output = noiseBuffer.getChannelData(0);
-      for (let i = 0; i < bufferSize; i++) output[i] = Math.random() * 2 - 1;
-      rainNode = audioCtx.createBufferSource();
-      rainNode.buffer = noiseBuffer;
-      rainNode.loop = true;
-      const filter = audioCtx.createBiquadFilter();
-      filter.type = 'highpass';
-      filter.frequency.value = 1000;
-      const gain = audioCtx.createGain();
-      gain.gain.value = 0.02;
-      rainNode.connect(filter);
-      filter.connect(gain);
-      gain.connect(audioCtx.destination);
-      rainNode.start();
-    }
-    function setHeartbeat(intensity) {
-      if (!audioCtx) return;
-      if (!heartNode) {
-        heartNode = { osc: null, gain: null };
-        heartNode.osc = audioCtx.createOscillator();
-        heartNode.gain = audioCtx.createGain();
-        heartNode.osc.frequency.value = 50;
-        heartNode.osc.type = 'sine';
-        heartNode.gain.gain.value = 0;
-        heartNode.osc.connect(heartNode.gain);
-        heartNode.gain.connect(audioCtx.destination);
-        heartNode.osc.start();
-      }
-      // модуляция громкости для сердцебиения
-      const now = audioCtx.currentTime;
-      heartNode.gain.gain.cancelScheduledValues(now);
-      heartNode.gain.gain.setValueAtTime(0, now);
-      if (intensity > 0) {
-        const beatInterval = 0.8 - intensity * 0.5;
-        for (let i = 0; i < 10; i++) {
-          const t = now + i * beatInterval;
-          heartNode.gain.gain.setValueAtTime(intensity * 0.15, t);
-          heartNode.gain.gain.exponentialRampToValueAtTime(0.001, t + 0.1);
+    <script type="module">
+        import * as THREE from 'three';
+        import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js';
+
+        // ---------- ЗВУК (Web Audio) ----------
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        function playTone(freq, type, vol, duration) {
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.type = type; osc.frequency.value = freq;
+            gain.gain.setValueAtTime(vol, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+            osc.connect(gain); gain.connect(audioCtx.destination);
+            osc.start(); osc.stop(audioCtx.currentTime + duration);
         }
-      }
-    }
-
-    // ==================== ИГРОВЫЕ ОБЪЕКТЫ ====================
-    const TILE_SIZE = 16;
-    const GRAVITY = 0.5;
-    const PLAYER_SPEED = 1.6;
-    const JUMP_FORCE = -3.2;
-
-    let player = {
-      x: 100, y: 100,
-      vx: 0, vy: 0,
-      width: 10, height: 14,
-      onGround: false,
-      facing: 1
-    };
-
-    let camera = { x: 0, y: 0 };
-    let currentLevel = null;
-    let diaryFragments = 0;
-    const TOTAL_FRAGMENTS = 3; // столько фрагментов нужно собрать для хорошей концовки
-    let gameState = 'menu'; // 'menu', 'playing', 'goodEnd', 'badEnd'
-    let transitionAlpha = 0;
-
-    // Определение уровней
-    const levels = {
-      level1: {
-        name: 'Страх',
-        width: 60, height: 20,
-        tiles: [], // будем генерировать
-        playerStart: { x: 3*16, y: 5*16 },
-        exit: { x: 50*16, y: 5*16 },
-        diaryPositions: [{ x: 20*16, y: 5*16 - 8 }],
-        backgroundColor: '#0a0a0f',
-        ambience: 'rain'
-      },
-      level2: {
-        name: 'Вина',
-        width: 60, height: 20,
-        playerStart: { x: 3*16, y: 5*16 },
-        exit: { x: 52*16, y: 3*16 },
-        diaryPositions: [{ x: 30*16, y: 5*16 - 8 }],
-        backgroundColor: '#0f0a0f',
-        ambience: 'heart'
-      },
-      level3: {
-        name: 'Прощение',
-        width: 30, height: 20,
-        playerStart: { x: 3*16, y: 5*16 },
-        exit: null, // встреча с тенью
-        diaryPositions: [],
-        backgroundColor: '#0a0f0f',
-        ambience: 'none'
-      }
-    };
-
-    // Генерация тайлов для уровней
-    function generateLevel(level) {
-      const tiles = [];
-      const w = level.width, h = level.height;
-      for (let y = 0; y < h; y++) {
-        for (let x = 0; x < w; x++) {
-          if (y === h-1) { tiles.push(1); } // пол
-          else if (x === 0 || x === w-1) { tiles.push(1); } // стены
-          else if (y === 0 && x > 2 && x < w-3 && Math.random() < 0.3) { tiles.push(1); } // потолок местами
-          else { tiles.push(0); }
+        // фоновый ветер
+        let windNoise;
+        function startWind() {
+            const bufferSize = 4096;
+            const noise = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+            const data = noise.getChannelData(0);
+            for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
+            windNoise = audioCtx.createBufferSource();
+            windNoise.buffer = noise;
+            windNoise.loop = true;
+            const filter = audioCtx.createBiquadFilter();
+            filter.type = 'lowpass'; filter.frequency.value = 600;
+            const gain = audioCtx.createGain();
+            gain.gain.value = 0.03;
+            windNoise.connect(filter); filter.connect(gain); gain.connect(audioCtx.destination);
+            windNoise.start();
         }
-      }
-      // Платформы
-      if (level.name === 'Страх') {
-        for (let x = 10; x < 20; x++) { tiles[4 * w + x] = 1; }
-        for (let x = 35; x < 42; x++) { tiles[6 * w + x] = 1; }
-        // выход
-        tiles[5 * w + 50] = 2;
-      } else if (level.name === 'Вина') {
-        for (let x = 15; x < 25; x++) { tiles[7 * w + x] = 1; }
-        for (let x = 40; x < 48; x++) { tiles[4 * w + x] = 1; }
-        tiles[3 * w + 52] = 2;
-      } else if (level.name === 'Прощение') {
-        // пустая комната с тенью в центре
-        tiles[9 * w + 14] = 3; // тень (триггер)
-      }
-      level.tiles = tiles;
-    }
 
-    // Текущий уровень
-    let levelIndex = 0;
-    const levelOrder = ['level1', 'level2', 'level3'];
-    function loadLevel(levelKey) {
-      const lvl = levels[levelKey];
-      generateLevel(lvl);
-      currentLevel = lvl;
-      player.x = lvl.playerStart.x;
-      player.y = lvl.playerStart.y;
-      player.vx = 0; player.vy = 0;
-      diaryFragments = 0;
-      gameState = 'playing';
-      if (lvl.ambience === 'rain') startAmbient();
-      else if (lvl.ambience === 'heart') setHeartbeat(0.3);
-      else setHeartbeat(0);
-    }
+        // ---------- ИГРОВЫЕ ПЕРЕМЕННЫЕ ----------
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x1a1a1a);
+        scene.fog = new THREE.FogExp2(0x1a1a1a, 0.015);
 
-    // ==================== ОТРИСОВКА ====================
-    function drawPixelArt() {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      if (!currentLevel) return;
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 100);
+        camera.position.set(2, 1.6, 5);
 
-      // фон
-      ctx.fillStyle = currentLevel.backgroundColor;
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
+        const renderer = new THREE.WebGLRenderer({ antialias: false });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        document.body.appendChild(renderer.domElement);
 
-      // параллаксные слои (упрощённо)
-      for (let i = 0; i < 5; i++) {
-        const px = (camera.x * 0.3 * i) % 64;
-        ctx.fillStyle = `rgba(255,255,255,${0.02 * i})`;
-        ctx.fillRect(-px + i * 60, 50 + i * 20, 30, 30);
-      }
-
-      // отрисовка тайлов
-      const startCol = Math.floor(camera.x / TILE_SIZE) - 1;
-      const endCol = startCol + Math.ceil(canvas.width / TILE_SIZE) + 2;
-      const startRow = Math.floor(camera.y / TILE_SIZE) - 1;
-      const endRow = startRow + Math.ceil(canvas.height / TILE_SIZE) + 2;
-
-      for (let row = startRow; row <= endRow; row++) {
-        for (let col = startCol; col <= endCol; col++) {
-          if (row < 0 || row >= currentLevel.height || col < 0 || col >= currentLevel.width) continue;
-          const tile = currentLevel.tiles[row * currentLevel.width + col];
-          if (tile === 1) {
-            ctx.fillStyle = '#2a2a35';
-            ctx.fillRect(col * TILE_SIZE - camera.x, row * TILE_SIZE - camera.y, TILE_SIZE, TILE_SIZE);
-            // край плитки
-            ctx.fillStyle = '#1f1f28';
-            ctx.fillRect(col * TILE_SIZE - camera.x, row * TILE_SIZE - camera.y, TILE_SIZE, 2);
-          } else if (tile === 2) { // выход
-            ctx.fillStyle = '#8b1a2b';
-            ctx.fillRect(col * TILE_SIZE - camera.x + 4, row * TILE_SIZE - camera.y + 4, 8, 8);
-          } else if (tile === 3) { // тень
-            // нарисуем позже как NPC
-          }
-        }
-      }
-
-      // дневник (фрагменты)
-      if (currentLevel.diaryPositions) {
-        currentLevel.diaryPositions.forEach(pos => {
-          ctx.fillStyle = '#d0d0e0';
-          ctx.fillRect(pos.x - camera.x - 4, pos.y - camera.y - 4, 8, 8);
-          ctx.fillStyle = '#8b1a2b';
-          ctx.fillRect(pos.x - camera.x - 2, pos.y - camera.y - 2, 4, 4);
-        });
-      }
-
-      // игрок
-      const px = player.x - camera.x;
-      const py = player.y - camera.y;
-      ctx.fillStyle = '#d0d0e0';
-      ctx.fillRect(px, py, player.width, player.height);
-      // глаза (красные)
-      ctx.fillStyle = '#8b1a2b';
-      ctx.fillRect(px + (player.facing === 1 ? 6 : 2), py + 4, 2, 2);
-      // свечение (динамический свет)
-      const gradient = ctx.createRadialGradient(px + player.width/2, py + player.height/2, 2, px + player.width/2, py + player.height/2, 40);
-      gradient.addColorStop(0, 'rgba(255,255,255,0.15)');
-      gradient.addColorStop(1, 'rgba(255,255,255,0)');
-      ctx.fillStyle = gradient;
-      ctx.fillRect(px - 40, py - 40, 80 + player.width, 80 + player.height);
-    }
-
-    // ==================== ЛОГИКА ====================
-    function collision(x, y, w, h) {
-      if (!currentLevel) return false;
-      const left = Math.floor(x / TILE_SIZE);
-      const right = Math.floor((x + w) / TILE_SIZE);
-      const top = Math.floor(y / TILE_SIZE);
-      const bottom = Math.floor((y + h) / TILE_SIZE);
-      for (let row = top; row <= bottom; row++) {
-        for (let col = left; col <= right; col++) {
-          if (row < 0 || row >= currentLevel.height || col < 0 || col >= currentLevel.width) continue;
-          const tile = currentLevel.tiles[row * currentLevel.width + col];
-          if (tile === 1) return true;
-          if (tile === 2 && gameState === 'playing') {
-            // переход на следующий уровень
-            levelIndex++;
-            if (levelIndex < levelOrder.length) {
-              loadLevel(levelOrder[levelIndex]);
-            } else {
-              gameState = 'goodEnd';
+        // Зернистость (пост-эффект через наложение canvas)
+        const grainCanvas = document.createElement('canvas');
+        grainCanvas.width = 64; grainCanvas.height = 64;
+        const grainCtx = grainCanvas.getContext('2d');
+        const grainTexture = new THREE.CanvasTexture(grainCanvas);
+        grainTexture.minFilter = THREE.NearestFilter; grainTexture.magFilter = THREE.NearestFilter;
+        const grainPlane = new THREE.Mesh(
+            new THREE.PlaneGeometry(2, 2),
+            new THREE.MeshBasicMaterial({ map: grainTexture, transparent: true, opacity: 0.08, depthTest: false })
+        );
+        const grainScene = new THREE.Scene();
+        const grainCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+        grainScene.add(grainPlane);
+        function updateGrain() {
+            const imageData = grainCtx.createImageData(64, 64);
+            for (let i = 0; i < imageData.data.length; i += 4) {
+                const v = Math.random() * 255;
+                imageData.data[i] = v; imageData.data[i+1] = v; imageData.data[i+2] = v;
+                imageData.data[i+3] = 255;
             }
-          }
-          if (tile === 3 && gameState === 'playing') {
-            // встреча с тенью
-            if (diaryFragments >= TOTAL_FRAGMENTS) {
-              gameState = 'goodEnd';
-            } else {
-              gameState = 'badEnd';
-            }
-          }
+            grainCtx.putImageData(imageData, 0, 0);
+            grainTexture.needsUpdate = true;
         }
-      }
-      return false;
-    }
 
-    function updatePlayer() {
-      if (gameState !== 'playing') return;
-      // гравитация
-      player.vy += GRAVITY;
-      player.y += player.vy;
-      // коллизия вертикаль
-      if (collision(player.x, player.y, player.width, player.height)) {
-        if (player.vy > 0) { player.y = Math.floor(player.y / TILE_SIZE) * TILE_SIZE; player.vy = 0; player.onGround = true; }
-        else if (player.vy < 0) { player.y = Math.ceil(player.y / TILE_SIZE) * TILE_SIZE; player.vy = 0; }
-      } else { player.onGround = false; }
-
-      // горизонталь
-      player.x += player.vx;
-      if (collision(player.x, player.y, player.width, player.height)) {
-        if (player.vx > 0) player.x = Math.floor(player.x / TILE_SIZE) * TILE_SIZE;
-        else if (player.vx < 0) player.x = Math.ceil(player.x / TILE_SIZE) * TILE_SIZE;
-        player.vx = 0;
-      }
-
-      // сбор дневников
-      if (currentLevel && currentLevel.diaryPositions) {
-        currentLevel.diaryPositions = currentLevel.diaryPositions.filter(pos => {
-          if (Math.abs(player.x - pos.x) < 10 && Math.abs(player.y - pos.y) < 10) {
-            diaryFragments++;
-            playSound(600, 'square', 0.1, 0.1);
-            return false; // убираем
-          }
-          return true;
+        // ---------- УПРАВЛЕНИЕ ----------
+        const controls = new PointerLockControls(camera, document.body);
+        document.body.addEventListener('click', () => controls.lock(), { once: true });
+        controls.addEventListener('lock', () => document.getElementById('message').style.opacity = '0');
+        controls.addEventListener('unlock', () => {
+            document.getElementById('message').textContent = 'Кликни для управления';
+            document.getElementById('message').style.opacity = '1';
         });
-      }
+        const keys = { w: false, a: false, s: false, d: false, e: false };
+        window.addEventListener('keydown', e => { if (e.key.toLowerCase() in keys) { keys[e.key.toLowerCase()] = true; e.preventDefault(); } });
+        window.addEventListener('keyup', e => { if (e.key.toLowerCase() in keys) { keys[e.key.toLowerCase()] = false; e.preventDefault(); } });
+        // мобильные кнопки
+        document.getElementById('btn-forward').addEventListener('pointerdown', () => keys.w = true);
+        document.getElementById('btn-forward').addEventListener('pointerup', () => keys.w = false);
+        document.getElementById('btn-left').addEventListener('pointerdown', () => keys.a = true);
+        document.getElementById('btn-left').addEventListener('pointerup', () => keys.a = false);
+        document.getElementById('btn-back').addEventListener('pointerdown', () => keys.s = true);
+        document.getElementById('btn-back').addEventListener('pointerup', () => keys.s = false);
+        document.getElementById('btn-right').addEventListener('pointerdown', () => keys.d = true);
+        document.getElementById('btn-right').addEventListener('pointerup', () => keys.d = false);
+        document.getElementById('btn-interact').addEventListener('pointerdown', () => { keys.e = true; setTimeout(() => keys.e = false, 100); });
 
-      // камера следует за игроком
-      camera.x = player.x - canvas.width/2 + player.width/2;
-      camera.y = player.y - canvas.height/2 + player.height/2;
-      if (camera.x < 0) camera.x = 0;
-      if (camera.y < 0) camera.y = 0;
-      if (camera.x > currentLevel.width * TILE_SIZE - canvas.width) camera.x = currentLevel.width * TILE_SIZE - canvas.width;
-      if (camera.y > currentLevel.height * TILE_SIZE - canvas.height) camera.y = currentLevel.height * TILE_SIZE - canvas.height;
-    }
-
-    // ==================== УПРАВЛЕНИЕ ====================
-    const keys = {};
-    window.addEventListener('keydown', e => {
-      keys[e.key] = true;
-      if (e.key === 'ArrowLeft') player.vx = -PLAYER_SPEED;
-      if (e.key === 'ArrowRight') player.vx = PLAYER_SPEED;
-      if (e.key === ' ' && player.onGround) { player.vy = JUMP_FORCE; playSound(200, 'triangle', 0.1, 0.1); }
-      e.preventDefault();
-    });
-    window.addEventListener('keyup', e => {
-      keys[e.key] = false;
-      if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') player.vx = 0;
-      e.preventDefault();
-    });
-
-    // сенсорные кнопки
-    document.getElementById('btn-left').addEventListener('pointerdown', () => { player.vx = -PLAYER_SPEED; initAudio(); });
-    document.getElementById('btn-left').addEventListener('pointerup', () => { player.vx = 0; });
-    document.getElementById('btn-right').addEventListener('pointerdown', () => { player.vx = PLAYER_SPEED; });
-    document.getElementById('btn-right').addEventListener('pointerup', () => { player.vx = 0; });
-    document.getElementById('btn-jump').addEventListener('pointerdown', () => {
-      if (player.onGround) { player.vy = JUMP_FORCE; playSound(200, 'triangle', 0.1, 0.1); }
-      initAudio();
-    });
-
-    // ==================== СОХРАНЕНИЕ ====================
-    function saveGame() {
-      const save = { levelIndex, diaryFragments };
-      localStorage.setItem('depth_save', JSON.stringify(save));
-    }
-    function loadGame() {
-      const save = localStorage.getItem('depth_save');
-      if (save) {
-        const data = JSON.parse(save);
-        levelIndex = data.levelIndex;
-        diaryFragments = data.diaryFragments;
-        loadLevel(levelOrder[levelIndex]);
-        gameState = 'playing';
-        return true;
-      }
-      return false;
-    }
-
-    // ==================== ИГРОВОЙ ЦИКЛ ====================
-    function gameLoop() {
-      if (gameState === 'playing') {
-        updatePlayer();
-        // обновление звуков
-        if (currentLevel && currentLevel.ambience === 'heart') setHeartbeat(0.3 + diaryFragments * 0.1);
-      }
-      drawPixelArt();
-      // UI текст
-      if (gameState === 'menu') {
-        ctx.fillStyle = 'white';
-        ctx.font = '20px monospace';
-        ctx.fillText('ГЛУБИНА', canvas.width/2-50, canvas.height/2-30);
-        ctx.font = '14px monospace';
-        ctx.fillText('Нажми Enter для начала', canvas.width/2-80, canvas.height/2+20);
-        if (localStorage.getItem('depth_save')) {
-          ctx.fillText('Нажми L для загрузки', canvas.width/2-80, canvas.height/2+50);
+        // ---------- ТЕКСТУРЫ (процедурные, пиксельные) ----------
+        function createTexture(width, height, callback) {
+            const canvas = document.createElement('canvas');
+            canvas.width = width; canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            callback(ctx);
+            const tex = new THREE.CanvasTexture(canvas);
+            tex.minFilter = THREE.NearestFilter; tex.magFilter = THREE.NearestFilter;
+            tex.wrapS = THREE.RepeatWrapping; tex.wrapT = THREE.RepeatWrapping;
+            return tex;
         }
-      } else if (gameState === 'goodEnd') {
-        ctx.fillStyle = 'white';
-        ctx.font = '16px monospace';
-        const msg = diaryFragments >= TOTAL_FRAGMENTS ? 'Ты простил себя и обрёл покой.' : 'Ты выбрался, но что-то осталось.';
-        ctx.fillText(msg, 20, canvas.height/2);
-        ctx.fillText('Спасибо за игру. (R - заново)', 20, canvas.height/2+30);
-      } else if (gameState === 'badEnd') {
-        ctx.fillStyle = '#8b1a2b';
-        ctx.font = '16px monospace';
-        ctx.fillText('Тьма поглотила тебя.', 20, canvas.height/2);
-        ctx.fillText('Не хватило воспоминаний. (R - заново)', 20, canvas.height/2+30);
-      }
+        const brickTex = createTexture(64, 64, ctx => {
+            ctx.fillStyle = '#5a4a3a'; ctx.fillRect(0,0,64,64);
+            for (let y=0;y<8;y++) for (let x=0;x<4;x++) {
+                ctx.fillStyle = Math.random()<0.5?'#6b5b4b':'#4a3a2a';
+                ctx.fillRect(x*16+1, y*8+1, 14, 6);
+            }
+        });
+        const concreteTex = createTexture(64, 64, ctx => {
+            ctx.fillStyle = '#808080'; ctx.fillRect(0,0,64,64);
+            for (let i=0;i<200;i++) {
+                ctx.fillStyle = `rgba(${Math.random()*50|0},${Math.random()*50|0},${Math.random()*50|0},0.2)`;
+                ctx.fillRect(Math.random()*64,Math.random()*64,2,2);
+            }
+        });
+        const rustTex = createTexture(64, 64, ctx => {
+            ctx.fillStyle = '#4a2a1a'; ctx.fillRect(0,0,64,64);
+            for (let i=0;i<300;i++) {
+                ctx.fillStyle = `#${['8b4513','a0522d','6b3410'][Math.floor(Math.random()*3)]}`;
+                ctx.fillRect(Math.random()*64,Math.random()*64,1,1);
+            }
+        });
+        const floorTex = createTexture(64, 64, ctx => {
+            ctx.fillStyle = '#333'; ctx.fillRect(0,0,64,64);
+            for (let y=0;y<8;y++) for (let x=0;x<8;x++) {
+                ctx.fillStyle = Math.random()<0.5?'#444':'#222';
+                ctx.fillRect(x*8, y*8, 7, 7);
+            }
+        });
 
-      requestAnimationFrame(gameLoop);
-    }
+        // ---------- УРОВЕНЬ ----------
+        const mapWidth = 15, mapHeight = 15;
+        const mapData = [
+            1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
+            1,0,0,0,0,0,1,0,0,0,0,0,0,0,1,
+            1,0,1,0,1,0,0,0,1,0,1,1,0,0,1,
+            1,0,0,0,0,0,1,0,0,0,0,0,0,0,1,
+            1,0,1,0,1,0,0,0,1,0,1,0,1,0,1,
+            1,0,0,0,0,0,1,1,0,0,0,0,0,0,1,
+            1,1,1,1,0,1,1,0,0,1,0,1,0,0,1,
+            1,0,0,0,0,0,0,0,0,0,0,0,0,0,1,
+            1,0,1,0,0,0,1,0,1,0,0,0,1,0,1,
+            1,0,0,0,0,0,0,0,0,0,0,0,0,0,1,
+            1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
+        ];
+        // генерация стен из карты (1 = стена)
+        const wallGeo = new THREE.BoxGeometry(1, 2, 1);
+        const materials = [
+            new THREE.MeshStandardMaterial({ map: brickTex }),  // кирпич
+            new THREE.MeshStandardMaterial({ map: concreteTex }), // бетон
+            new THREE.MeshStandardMaterial({ map: rustTex })     // ржавый
+        ];
+        for (let z = 0; z < mapHeight; z++) {
+            for (let x = 0; x < mapWidth; x++) {
+                if (mapData[z * mapWidth + x] === 1) {
+                    const mat = materials[Math.floor(Math.random() * 3)];
+                    const wall = new THREE.Mesh(wallGeo, mat);
+                    wall.position.set(x - mapWidth/2, 1, z - mapHeight/2);
+                    wall.receiveShadow = true;
+                    scene.add(wall);
+                }
+            }
+        }
+        // пол
+        const groundGeo = new THREE.PlaneGeometry(mapWidth, mapHeight);
+        const ground = new THREE.Mesh(groundGeo, new THREE.MeshStandardMaterial({ map: floorTex }));
+        ground.rotation.x = -Math.PI/2;
+        ground.position.y = -0.01;
+        scene.add(ground);
 
-    // Обработка меню
-    window.addEventListener('keydown', function menuHandler(e) {
-      if (gameState === 'menu') {
-        if (e.key === 'Enter') { initAudio(); loadLevel(levelOrder[0]); levelIndex = 0; diaryFragments = 0; }
-        if (e.key === 'l' || e.key === 'L') { if (!loadGame()) alert('Нет сохранения'); initAudio(); }
-      }
-      if ((gameState === 'goodEnd' || gameState === 'badEnd') && e.key === 'r') {
-        levelIndex = 0; diaryFragments = 0; loadLevel(levelOrder[0]); gameState = 'playing';
-      }
-    });
+        // ---------- ПРОТИВНИКИ (Тени) ----------
+        const enemies = [];
+        const enemyGeo = new THREE.CylinderGeometry(0.3, 0.3, 1.6, 8);
+        const enemyMat = new THREE.MeshStandardMaterial({ color: 0x111, emissive: 0x330000 });
+        function spawnEnemy(x, z) {
+            const enemy = new THREE.Mesh(enemyGeo, enemyMat);
+            enemy.position.set(x, 0.8, z);
+            enemy.castShadow = true;
+            enemy.userData = { speed: 0.8 + Math.random() * 0.5, alert: false, patrolAngle: Math.random() * Math.PI * 2 };
+            scene.add(enemy);
+            enemies.push(enemy);
+        }
+        spawnEnemy(-3, -2); spawnEnemy(4, 3); spawnEnemy(0, -5);
 
-    // Автосохранение при сборе дневника или смене уровня
-    setInterval(() => { if (gameState === 'playing') saveGame(); }, 5000);
+        // ---------- ДНЕВНИКИ (собираемые предметы) ----------
+        const diaries = [];
+        const diaryGeo = new THREE.BoxGeometry(0.3, 0.1, 0.4);
+        const diaryMat = new THREE.MeshStandardMaterial({ color: 0x8b0000, emissive: 0x330000 });
+        function placeDiary(x, z) {
+            const diary = new THREE.Mesh(diaryGeo, diaryMat);
+            diary.position.set(x, 0.1, z);
+            diary.rotation.y = Math.random() * Math.PI;
+            scene.add(diary);
+            diaries.push(diary);
+        }
+        placeDiary(-4, -4); placeDiary(5, -3); placeDiary(2, 4);
 
-    // Старт
-    gameState = 'menu';
-    gameLoop();
-  </script>
+        // ---------- ОСВЕЩЕНИЕ ----------
+        const ambient = new THREE.AmbientLight(0x222244);
+        scene.add(ambient);
+        const fogLight = new THREE.PointLight(0x446688, 0.5, 20);
+        fogLight.position.set(0, 3, 0);
+        scene.add(fogLight);
+        // фонарик игрока
+        const flashlight = new THREE.SpotLight(0xccbb99, 1.2, 12, Math.PI/6, 0.1);
+        flashlight.position.copy(camera.position);
+        flashlight.target.position.set(0,0,-1);
+        camera.add(flashlight);
+        camera.add(flashlight.target);
+
+        // ---------- СОСТОЯНИЕ ИГРЫ ----------
+        let diaryCount = 0;
+        const totalDiaries = 3;
+        let gameOver = false;
+        let gameWin = false;
+
+        // ---------- ИГРОВОЙ ЦИКЛ ----------
+        function update() {
+            if (gameOver || gameWin) return;
+            // движение игрока
+            const speed = 0.1;
+            if (controls.isLocked) {
+                if (keys.w) controls.moveForward(speed);
+                if (keys.s) controls.moveForward(-speed);
+                if (keys.a) controls.moveRight(-speed);
+                if (keys.d) controls.moveRight(speed);
+            }
+            // взаимодействие (E)
+            if (keys.e) {
+                keys.e = false;
+                const playerPos = camera.position;
+                diaries.forEach((d, idx) => {
+                    if (d && playerPos.distanceTo(d.position) < 1.5) {
+                        scene.remove(d);
+                        diaries.splice(idx, 1);
+                        diaryCount++;
+                        document.getElementById('diary-count').textContent = diaryCount;
+                        playTone(600, 'square', 0.2, 0.2);
+                        if (diaryCount >= totalDiaries) {
+                            gameWin = true;
+                            setTimeout(() => alert('Ты собрал все дневники и вспомнил правду. Выход открыт!'), 100);
+                        }
+                    }
+                });
+            }
+
+            // противники ИИ
+            enemies.forEach(enemy => {
+                const dist = camera.position.distanceTo(enemy.position);
+                if (dist < 6) enemy.userData.alert = true;
+                if (enemy.userData.alert) {
+                    // преследование
+                    const dir = new THREE.Vector3().copy(camera.position).sub(enemy.position).normalize();
+                    enemy.position.x += dir.x * enemy.userData.speed * 0.03;
+                    enemy.position.z += dir.z * enemy.userData.speed * 0.03;
+                    // звук при погоне
+                    if (dist < 3 && !enemy.userData.soundPlaying) {
+                        enemy.userData.soundPlaying = true;
+                        playTone(40, 'sawtooth', 0.15, 1.5);
+                        setTimeout(() => enemy.userData.soundPlaying = false, 1500);
+                    }
+                } else {
+                    // патруль
+                    enemy.userData.patrolAngle += 0.02;
+                    enemy.position.x += Math.sin(enemy.userData.patrolAngle) * 0.01;
+                    enemy.position.z += Math.cos(enemy.userData.patrolAngle) * 0.01;
+                }
+                // смерть при касании
+                if (dist < 0.8) {
+                    gameOver = true;
+                    alert('Тень поглотила тебя. Игра окончена.');
+                    location.reload();
+                }
+            });
+
+            // обновление фонарика
+            flashlight.position.copy(camera.position);
+            // зернистость
+            updateGrain();
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            update();
+            renderer.render(scene, camera);
+            renderer.autoClear = true;
+            renderer.render(grainScene, grainCamera);
+            renderer.autoClear = false;
+        }
+
+        // ---------- СТАРТ ----------
+        startWind();
+        animate();
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        // сохранение (упрощённо)
+        window.addEventListener('beforeunload', () => {
+            localStorage.setItem('doom_save', JSON.stringify({ diaryCount }));
+        });
+        const save = JSON.parse(localStorage.getItem('doom_save'));
+        if (save && save.diaryCount) {
+            diaryCount = save.diaryCount;
+            document.getElementById('diary-count').textContent = diaryCount;
+            // удаляем уже собранные дневники (условно, для простоты не восстанавливаем позиции)
+            if (diaryCount > 0) diaries.splice(0, diaryCount);
+        }
+    </script>
 </body>
 </html>
