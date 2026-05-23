@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>Глубина</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #000; overflow: hidden; touch-action: none; }
+    canvas { display: block; position: absolute; top: 0; left: 0; }
+    #ui-container {
+      position: fixed; bottom: 20px; left: 0; right: 0;
+      display: none; justify-content: center; gap: 40px; z-index: 10;
+    }
+    .touch-btn {
+      width: 70px; height: 70px; border-radius: 35px;
+      background: rgba(255,255,255,0.1); backdrop-filter: blur(20px);
+      border: 1px solid rgba(255,255,255,0.2);
+      color: white; font-size: 36px; display: flex;
+      align-items: center; justify-content: center;
+      user-select: none; -webkit-user-select: none;
+    }
+    @media (pointer: coarse) {
+      #ui-container { display: flex; }
+    }
+  </style>
+  <link rel="manifest" href="data:application/manifest+json,{name:'Глубина',short_name:'Глубина',start_url:'.',display:'standalone',background_color:'#000',theme_color:'#000',icons:[{src:'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAAXNSR0IArs4c6QAAAMhJREFUWEft1rENwjAQBdD/F0jJGAFJyMzClDQZWCNuwAhUjAAjYAXCvYOdCHyylAsufsn9/bv/l0p8UuBwgQ0NPMBOBc5Q1iMEqHMdk2q+BgggUQHrPoFYJOA7UPaXQ/AQj2q6AM+RAI9y1QWAABUwG0AiJVR7gQoOkQCMygVEC4xMcyIP8IgGTKjF7wKERgG5CJAcCWIGMEVq/D4g0QGiBfj3A6wOWO8D7J0Yd/vAAuw8AAAAAA+gnwABkYCGFAgFfAAAAAElFTkSuQmCC',sizes:'32x32',type:'image/png'}]}">
+</head>
+<body>
+  <canvas id="game"></canvas>
+  <div id="ui-container">
+    <button class="touch-btn" id="btn-left">←</button>
+    <button class="touch-btn" id="btn-right">→</button>
+    <button class="touch-btn" id="btn-jump">↑</button>
+  </div>
+  <script>
+    // ==================== ГЛУБИНА: ПИКСЕЛЬНЫЙ ПЛАТФОРМЕР ====================
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+    canvas.width = 480; canvas.height = 320; // фиксированное игровое разрешение
+    ctx.imageSmoothingEnabled = false;
+
+    // Масштабирование под экран
+    function resize() {
+      const scale = Math.min(window.innerWidth / 480, window.innerHeight / 320);
+      canvas.style.width = 480 * scale + 'px';
+      canvas.style.height = 320 * scale + 'px';
+    }
+    window.addEventListener('resize', resize);
+    resize();
+
+    // ==================== ЗВУК ====================
+    let audioCtx = null;
+    function initAudio() {
+      if (audioCtx) return;
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    function playSound(freq, type, duration, vol = 0.1, detune = 0) {
+      if (!audioCtx) return;
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = type;
+      osc.frequency.value = freq;
+      osc.detune.value = detune;
+      gain.gain.setValueAtTime(vol, audioCtx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      osc.start();
+      osc.stop(audioCtx.currentTime + duration);
+    }
+    // фоновые звуки (дождь, сердце)
+    let rainNode = null, heartNode = null;
+    function startAmbient() {
+      if (!audioCtx || rainNode) return;
+      // дождь: белый шум
+      const bufferSize = 4096;
+      const noiseBuffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+      const output = noiseBuffer.getChannelData(0);
+      for (let i = 0; i < bufferSize; i++) output[i] = Math.random() * 2 - 1;
+      rainNode = audioCtx.createBufferSource();
+      rainNode.buffer = noiseBuffer;
+      rainNode.loop = true;
+      const filter = audioCtx.createBiquadFilter();
+      filter.type = 'highpass';
+      filter.frequency.value = 1000;
+      const gain = audioCtx.createGain();
+      gain.gain.value = 0.02;
+      rainNode.connect(filter);
+      filter.connect(gain);
+      gain.connect(audioCtx.destination);
+      rainNode.start();
+    }
+    function setHeartbeat(intensity) {
+      if (!audioCtx) return;
+      if (!heartNode) {
+        heartNode = { osc: null, gain: null };
+        heartNode.osc = audioCtx.createOscillator();
+        heartNode.gain = audioCtx.createGain();
+        heartNode.osc.frequency.value = 50;
+        heartNode.osc.type = 'sine';
+        heartNode.gain.gain.value = 0;
+        heartNode.osc.connect(heartNode.gain);
+        heartNode.gain.connect(audioCtx.destination);
+        heartNode.osc.start();
+      }
+      // модуляция громкости для сердцебиения
+      const now = audioCtx.currentTime;
+      heartNode.gain.gain.cancelScheduledValues(now);
+      heartNode.gain.gain.setValueAtTime(0, now);
+      if (intensity > 0) {
+        const beatInterval = 0.8 - intensity * 0.5;
+        for (let i = 0; i < 10; i++) {
+          const t = now + i * beatInterval;
+          heartNode.gain.gain.setValueAtTime(intensity * 0.15, t);
+          heartNode.gain.gain.exponentialRampToValueAtTime(0.001, t + 0.1);
+        }
+      }
+    }
+
+    // ==================== ИГРОВЫЕ ОБЪЕКТЫ ====================
+    const TILE_SIZE = 16;
+    const GRAVITY = 0.5;
+    const PLAYER_SPEED = 1.6;
+    const JUMP_FORCE = -3.2;
+
+    let player = {
+      x: 100, y: 100,
+      vx: 0, vy: 0,
+      width: 10, height: 14,
+      onGround: false,
+      facing: 1
+    };
+
+    let camera = { x: 0, y: 0 };
+    let currentLevel = null;
+    let diaryFragments = 0;
+    const TOTAL_FRAGMENTS = 3; // столько фрагментов нужно собрать для хорошей концовки
+    let gameState = 'menu'; // 'menu', 'playing', 'goodEnd', 'badEnd'
+    let transitionAlpha = 0;
+
+    // Определение уровней
+    const levels = {
+      level1: {
+        name: 'Страх',
+        width: 60, height: 20,
+        tiles: [], // будем генерировать
+        playerStart: { x: 3*16, y: 5*16 },
+        exit: { x: 50*16, y: 5*16 },
+        diaryPositions: [{ x: 20*16, y: 5*16 - 8 }],
+        backgroundColor: '#0a0a0f',
+        ambience: 'rain'
+      },
+      level2: {
+        name: 'Вина',
+        width: 60, height: 20,
+        playerStart: { x: 3*16, y: 5*16 },
+        exit: { x: 52*16, y: 3*16 },
+        diaryPositions: [{ x: 30*16, y: 5*16 - 8 }],
+        backgroundColor: '#0f0a0f',
+        ambience: 'heart'
+      },
+      level3: {
+        name: 'Прощение',
+        width: 30, height: 20,
+        playerStart: { x: 3*16, y: 5*16 },
+        exit: null, // встреча с тенью
+        diaryPositions: [],
+        backgroundColor: '#0a0f0f',
+        ambience: 'none'
+      }
+    };
+
+    // Генерация тайлов для уровней
+    function generateLevel(level) {
+      const tiles = [];
+      const w = level.width, h = level.height;
+      for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+          if (y === h-1) { tiles.push(1); } // пол
+          else if (x === 0 || x === w-1) { tiles.push(1); } // стены
+          else if (y === 0 && x > 2 && x < w-3 && Math.random() < 0.3) { tiles.push(1); } // потолок местами
+          else { tiles.push(0); }
+        }
+      }
+      // Платформы
+      if (level.name === 'Страх') {
+        for (let x = 10; x < 20; x++) { tiles[4 * w + x] = 1; }
+        for (let x = 35; x < 42; x++) { tiles[6 * w + x] = 1; }
+        // выход
+        tiles[5 * w + 50] = 2;
+      } else if (level.name === 'Вина') {
+        for (let x = 15; x < 25; x++) { tiles[7 * w + x] = 1; }
+        for (let x = 40; x < 48; x++) { tiles[4 * w + x] = 1; }
+        tiles[3 * w + 52] = 2;
+      } else if (level.name === 'Прощение') {
+        // пустая комната с тенью в центре
+        tiles[9 * w + 14] = 3; // тень (триггер)
+      }
+      level.tiles = tiles;
+    }
+
+    // Текущий уровень
+    let levelIndex = 0;
+    const levelOrder = ['level1', 'level2', 'level3'];
+    function loadLevel(levelKey) {
+      const lvl = levels[levelKey];
+      generateLevel(lvl);
+      currentLevel = lvl;
+      player.x = lvl.playerStart.x;
+      player.y = lvl.playerStart.y;
+      player.vx = 0; player.vy = 0;
+      diaryFragments = 0;
+      gameState = 'playing';
+      if (lvl.ambience === 'rain') startAmbient();
+      else if (lvl.ambience === 'heart') setHeartbeat(0.3);
+      else setHeartbeat(0);
+    }
+
+    // ==================== ОТРИСОВКА ====================
+    function drawPixelArt() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      if (!currentLevel) return;
+
+      // фон
+      ctx.fillStyle = currentLevel.backgroundColor;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      // параллаксные слои (упрощённо)
+      for (let i = 0; i < 5; i++) {
+        const px = (camera.x * 0.3 * i) % 64;
+        ctx.fillStyle = `rgba(255,255,255,${0.02 * i})`;
+        ctx.fillRect(-px + i * 60, 50 + i * 20, 30, 30);
+      }
+
+      // отрисовка тайлов
+      const startCol = Math.floor(camera.x / TILE_SIZE) - 1;
+      const endCol = startCol + Math.ceil(canvas.width / TILE_SIZE) + 2;
+      const startRow = Math.floor(camera.y / TILE_SIZE) - 1;
+      const endRow = startRow + Math.ceil(canvas.height / TILE_SIZE) + 2;
+
+      for (let row = startRow; row <= endRow; row++) {
+        for (let col = startCol; col <= endCol; col++) {
+          if (row < 0 || row >= currentLevel.height || col < 0 || col >= currentLevel.width) continue;
+          const tile = currentLevel.tiles[row * currentLevel.width + col];
+          if (tile === 1) {
+            ctx.fillStyle = '#2a2a35';
+            ctx.fillRect(col * TILE_SIZE - camera.x, row * TILE_SIZE - camera.y, TILE_SIZE, TILE_SIZE);
+            // край плитки
+            ctx.fillStyle = '#1f1f28';
+            ctx.fillRect(col * TILE_SIZE - camera.x, row * TILE_SIZE - camera.y, TILE_SIZE, 2);
+          } else if (tile === 2) { // выход
+            ctx.fillStyle = '#8b1a2b';
+            ctx.fillRect(col * TILE_SIZE - camera.x + 4, row * TILE_SIZE - camera.y + 4, 8, 8);
+          } else if (tile === 3) { // тень
+            // нарисуем позже как NPC
+          }
+        }
+      }
+
+      // дневник (фрагменты)
+      if (currentLevel.diaryPositions) {
+        currentLevel.diaryPositions.forEach(pos => {
+          ctx.fillStyle = '#d0d0e0';
+          ctx.fillRect(pos.x - camera.x - 4, pos.y - camera.y - 4, 8, 8);
+          ctx.fillStyle = '#8b1a2b';
+          ctx.fillRect(pos.x - camera.x - 2, pos.y - camera.y - 2, 4, 4);
+        });
+      }
+
+      // игрок
+      const px = player.x - camera.x;
+      const py = player.y - camera.y;
+      ctx.fillStyle = '#d0d0e0';
+      ctx.fillRect(px, py, player.width, player.height);
+      // глаза (красные)
+      ctx.fillStyle = '#8b1a2b';
+      ctx.fillRect(px + (player.facing === 1 ? 6 : 2), py + 4, 2, 2);
+      // свечение (динамический свет)
+      const gradient = ctx.createRadialGradient(px + player.width/2, py + player.height/2, 2, px + player.width/2, py + player.height/2, 40);
+      gradient.addColorStop(0, 'rgba(255,255,255,0.15)');
+      gradient.addColorStop(1, 'rgba(255,255,255,0)');
+      ctx.fillStyle = gradient;
+      ctx.fillRect(px - 40, py - 40, 80 + player.width, 80 + player.height);
+    }
+
+    // ==================== ЛОГИКА ====================
+    function collision(x, y, w, h) {
+      if (!currentLevel) return false;
+      const left = Math.floor(x / TILE_SIZE);
+      const right = Math.floor((x + w) / TILE_SIZE);
+      const top = Math.floor(y / TILE_SIZE);
+      const bottom = Math.floor((y + h) / TILE_SIZE);
+      for (let row = top; row <= bottom; row++) {
+        for (let col = left; col <= right; col++) {
+          if (row < 0 || row >= currentLevel.height || col < 0 || col >= currentLevel.width) continue;
+          const tile = currentLevel.tiles[row * currentLevel.width + col];
+          if (tile === 1) return true;
+          if (tile === 2 && gameState === 'playing') {
+            // переход на следующий уровень
+            levelIndex++;
+            if (levelIndex < levelOrder.length) {
+              loadLevel(levelOrder[levelIndex]);
+            } else {
+              gameState = 'goodEnd';
+            }
+          }
+          if (tile === 3 && gameState === 'playing') {
+            // встреча с тенью
+            if (diaryFragments >= TOTAL_FRAGMENTS) {
+              gameState = 'goodEnd';
+            } else {
+              gameState = 'badEnd';
+            }
+          }
+        }
+      }
+      return false;
+    }
+
+    function updatePlayer() {
+      if (gameState !== 'playing') return;
+      // гравитация
+      player.vy += GRAVITY;
+      player.y += player.vy;
+      // коллизия вертикаль
+      if (collision(player.x, player.y, player.width, player.height)) {
+        if (player.vy > 0) { player.y = Math.floor(player.y / TILE_SIZE) * TILE_SIZE; player.vy = 0; player.onGround = true; }
+        else if (player.vy < 0) { player.y = Math.ceil(player.y / TILE_SIZE) * TILE_SIZE; player.vy = 0; }
+      } else { player.onGround = false; }
+
+      // горизонталь
+      player.x += player.vx;
+      if (collision(player.x, player.y, player.width, player.height)) {
+        if (player.vx > 0) player.x = Math.floor(player.x / TILE_SIZE) * TILE_SIZE;
+        else if (player.vx < 0) player.x = Math.ceil(player.x / TILE_SIZE) * TILE_SIZE;
+        player.vx = 0;
+      }
+
+      // сбор дневников
+      if (currentLevel && currentLevel.diaryPositions) {
+        currentLevel.diaryPositions = currentLevel.diaryPositions.filter(pos => {
+          if (Math.abs(player.x - pos.x) < 10 && Math.abs(player.y - pos.y) < 10) {
+            diaryFragments++;
+            playSound(600, 'square', 0.1, 0.1);
+            return false; // убираем
+          }
+          return true;
+        });
+      }
+
+      // камера следует за игроком
+      camera.x = player.x - canvas.width/2 + player.width/2;
+      camera.y = player.y - canvas.height/2 + player.height/2;
+      if (camera.x < 0) camera.x = 0;
+      if (camera.y < 0) camera.y = 0;
+      if (camera.x > currentLevel.width * TILE_SIZE - canvas.width) camera.x = currentLevel.width * TILE_SIZE - canvas.width;
+      if (camera.y > currentLevel.height * TILE_SIZE - canvas.height) camera.y = currentLevel.height * TILE_SIZE - canvas.height;
+    }
+
+    // ==================== УПРАВЛЕНИЕ ====================
+    const keys = {};
+    window.addEventListener('keydown', e => {
+      keys[e.key] = true;
+      if (e.key === 'ArrowLeft') player.vx = -PLAYER_SPEED;
+      if (e.key === 'ArrowRight') player.vx = PLAYER_SPEED;
+      if (e.key === ' ' && player.onGround) { player.vy = JUMP_FORCE; playSound(200, 'triangle', 0.1, 0.1); }
+      e.preventDefault();
+    });
+    window.addEventListener('keyup', e => {
+      keys[e.key] = false;
+      if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') player.vx = 0;
+      e.preventDefault();
+    });
+
+    // сенсорные кнопки
+    document.getElementById('btn-left').addEventListener('pointerdown', () => { player.vx = -PLAYER_SPEED; initAudio(); });
+    document.getElementById('btn-left').addEventListener('pointerup', () => { player.vx = 0; });
+    document.getElementById('btn-right').addEventListener('pointerdown', () => { player.vx = PLAYER_SPEED; });
+    document.getElementById('btn-right').addEventListener('pointerup', () => { player.vx = 0; });
+    document.getElementById('btn-jump').addEventListener('pointerdown', () => {
+      if (player.onGround) { player.vy = JUMP_FORCE; playSound(200, 'triangle', 0.1, 0.1); }
+      initAudio();
+    });
+
+    // ==================== СОХРАНЕНИЕ ====================
+    function saveGame() {
+      const save = { levelIndex, diaryFragments };
+      localStorage.setItem('depth_save', JSON.stringify(save));
+    }
+    function loadGame() {
+      const save = localStorage.getItem('depth_save');
+      if (save) {
+        const data = JSON.parse(save);
+        levelIndex = data.levelIndex;
+        diaryFragments = data.diaryFragments;
+        loadLevel(levelOrder[levelIndex]);
+        gameState = 'playing';
+        return true;
+      }
+      return false;
+    }
+
+    // ==================== ИГРОВОЙ ЦИКЛ ====================
+    function gameLoop() {
+      if (gameState === 'playing') {
+        updatePlayer();
+        // обновление звуков
+        if (currentLevel && currentLevel.ambience === 'heart') setHeartbeat(0.3 + diaryFragments * 0.1);
+      }
+      drawPixelArt();
+      // UI текст
+      if (gameState === 'menu') {
+        ctx.fillStyle = 'white';
+        ctx.font = '20px monospace';
+        ctx.fillText('ГЛУБИНА', canvas.width/2-50, canvas.height/2-30);
+        ctx.font = '14px monospace';
+        ctx.fillText('Нажми Enter для начала', canvas.width/2-80, canvas.height/2+20);
+        if (localStorage.getItem('depth_save')) {
+          ctx.fillText('Нажми L для загрузки', canvas.width/2-80, canvas.height/2+50);
+        }
+      } else if (gameState === 'goodEnd') {
+        ctx.fillStyle = 'white';
+        ctx.font = '16px monospace';
+        const msg = diaryFragments >= TOTAL_FRAGMENTS ? 'Ты простил себя и обрёл покой.' : 'Ты выбрался, но что-то осталось.';
+        ctx.fillText(msg, 20, canvas.height/2);
+        ctx.fillText('Спасибо за игру. (R - заново)', 20, canvas.height/2+30);
+      } else if (gameState === 'badEnd') {
+        ctx.fillStyle = '#8b1a2b';
+        ctx.font = '16px monospace';
+        ctx.fillText('Тьма поглотила тебя.', 20, canvas.height/2);
+        ctx.fillText('Не хватило воспоминаний. (R - заново)', 20, canvas.height/2+30);
+      }
+
+      requestAnimationFrame(gameLoop);
+    }
+
+    // Обработка меню
+    window.addEventListener('keydown', function menuHandler(e) {
+      if (gameState === 'menu') {
+        if (e.key === 'Enter') { initAudio(); loadLevel(levelOrder[0]); levelIndex = 0; diaryFragments = 0; }
+        if (e.key === 'l' || e.key === 'L') { if (!loadGame()) alert('Нет сохранения'); initAudio(); }
+      }
+      if ((gameState === 'goodEnd' || gameState === 'badEnd') && e.key === 'r') {
+        levelIndex = 0; diaryFragments = 0; loadLevel(levelOrder[0]); gameState = 'playing';
+      }
+    });
+
+    // Автосохранение при сборе дневника или смене уровня
+    setInterval(() => { if (gameState === 'playing') saveGame(); }, 5000);
+
+    // Старт
+    gameState = 'menu';
+    gameLoop();
+  </script>
+</body>
+</html>
